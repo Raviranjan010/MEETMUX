@@ -145,7 +145,7 @@ export const Dashboard: React.FC = () => {
             <StatusPill
               label={health?.optimizer.gurobi_available ? 'PRIMARY' : 'FALLBACK ACTIVE'}
               status={health?.optimizer.gurobi_available || health?.optimizer.ortools_available ? 'ok' : 'error'}
-              subtext={health?.optimizer.ortools_available ? 'Licensed' : 'No License'}
+              subtext={health?.optimizer.gurobi_available ? 'Gurobi' : health?.optimizer.ortools_available ? 'OR-Tools, no license required' : 'None'}
             />
           </div>
         </div>

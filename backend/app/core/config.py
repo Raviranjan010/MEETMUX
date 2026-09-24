@@ -11,8 +11,8 @@ class Settings(BaseSettings):
     PORT: int = 8000
     HOST: str = "0.0.0.0"
 
-    # Database
-    DATABASE_URL: str = "sqlite:///./runwayoptx.db"
+    # Database (PostgreSQL sole runtime database per D-017)
+    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/runwayoptx"
 
     # CORS
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # Auth (docs/AUTH.md)
     OPERATOR_USERNAME: str = "operator"
-    OPERATOR_PASSWORD: str = "runwayoptx2026"
+    OPERATOR_PASSWORD_HASH: str = "$2b$12$JzHyNy4e5bIJEkymvmJBaO3xSRKSfcpYA4OUm7M0JIUTgg4THsFNK"
     JWT_SECRET_KEY: str = "runwayoptx-super-secret-key-at-least-32-chars-long-2026"
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 480

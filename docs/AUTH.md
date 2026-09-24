@@ -5,9 +5,9 @@ A minimal, secure single-operator authentication system for RunwayOptX.
 It ensures that the application cannot be accessed or manipulated by unauthenticated users who happen to know the URL, while avoiding the overhead of full multi-tenant RBAC, registration, or password reset flows (per DECISION_LOG D-016).
 
 ## Credentials
-Configured via environment variables (with sensible local development defaults in `.env.example`):
+Configured via environment variables (with placeholders in `.env.example`):
 - `OPERATOR_USERNAME`: default `operator`
-- `OPERATOR_PASSWORD`: default `runwayoptx2026`
+- `OPERATOR_PASSWORD_HASH`: bcrypt hash of the operator passphrase (never stored in plaintext)
 - `JWT_SECRET_KEY`: secret used to sign HS256 tokens (min 32 chars)
 - `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`: default `480` (8 hours)
 
