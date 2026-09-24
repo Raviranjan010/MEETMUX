@@ -10,7 +10,8 @@ from typing import List, Dict, Any
 
 from sqlalchemy.orm import Session
 
-from app.models import Flight
+from app.models import Flight, AuditRecord
+from app.models.enums import AuditAction
 from app.pipeline.validation import validate_flight_batch
 from app.pipeline.cleaning import clean_and_normalize_flights
 from app.schemas.pipeline import IngestionSummary, RowValidationDetail
@@ -77,6 +78,16 @@ def ingest_flights(raw_rows: List[Dict[str, Any]], db: Session) -> IngestionSumm
         db.flush()
         created_ids.append(str(flight.id))
 
+    audit = AuditRecord(
+        action=AuditAction.DATA_UPLOAD,
+        actor="operator",
+        details={
+            "accepted_count": len(created_ids),
+            "rejected_count": len(validation_errors),
+            "total_rows": len(raw_rows),
+        },
+    )
+    db.add(audit)
     db.commit()
     logger.info(f"Ingested {len(created_ids)} flights, rejected {len(validation_errors)}")
 

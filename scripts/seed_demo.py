@@ -15,6 +15,13 @@ from app.models import (
     Aircraft,
     Flight,
     WeatherRecord,
+    Prediction,
+    OptimizationRun,
+    GateAssignment,
+    Scenario,
+    Alert,
+    CascadeEvent,
+    AuditRecord,
     SystemConfig,
     RunwayStatus,
     GateType,
@@ -26,11 +33,30 @@ from app.models import (
 )
 
 
-def seed_demo_data():
+def seed_demo_data(reset: bool = False):
     random.seed(42)
     db = SessionLocal()
 
     try:
+        if reset:
+            print("--- Resetting Database Tables ---")
+            db.query(GateAssignment).delete()
+            db.query(OptimizationRun).delete()
+            db.query(Alert).delete()
+            db.query(CascadeEvent).delete()
+            db.query(Scenario).delete()
+            db.query(Prediction).delete()
+            db.query(AuditRecord).delete()
+            db.query(Flight).delete()
+            db.query(Gate).delete()
+            db.query(Runway).delete()
+            db.query(Terminal).delete()
+            db.query(WeatherRecord).delete()
+            db.query(Aircraft).delete()
+            db.query(Airport).delete()
+            db.query(SystemConfig).delete()
+            db.commit()
+
         print("--- Seeding RunwayOptX Demo Dataset (Seed 42) ---")
 
         # 1. System Config (Single row)

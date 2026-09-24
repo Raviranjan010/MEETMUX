@@ -1,3 +1,4 @@
+import os
 import logging
 from typing import Generator
 from sqlalchemy import create_engine, text
@@ -8,13 +9,19 @@ logger = logging.getLogger(__name__)
 
 # Handle SQLite connect_args if using SQLite
 connect_args = {}
-if settings.DATABASE_URL.startswith("sqlite"):
+database_url = settings.DATABASE_URL
+if database_url.startswith("sqlite:///.") or database_url == "sqlite:///runwayoptx.db":
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    db_path = os.path.join(project_root, "runwayoptx.db").replace("\\", "/")
+    database_url = f"sqlite:///{db_path}"
+
+if database_url.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
 
 from sqlalchemy import event
 
 engine = create_engine(
-    settings.DATABASE_URL,
+    database_url,
     connect_args=connect_args,
     pool_pre_ping=True,
 )
