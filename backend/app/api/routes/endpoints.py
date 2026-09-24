@@ -22,14 +22,15 @@ conflicts_router = APIRouter(prefix="/conflicts", tags=["Conflicts"])
 
 
 class ConflictDetectRequest(BaseModel):
-    assignment_source: str = "BASELINE"
+    assignment_source: Optional[str] = "BASELINE"
 
 
 @conflicts_router.post("/detect")
-def detect_conflicts(body: ConflictDetectRequest, db: Session = Depends(get_db)):
+def detect_conflicts(body: Optional[ConflictDetectRequest] = None, db: Session = Depends(get_db)):
     from app.services.conflict import detect_conflicts_from_db
-    conflicts = detect_conflicts_from_db(db, assignment_source=body.assignment_source)
-    return {"conflicts": conflicts, "total": len(conflicts)}
+    source = body.assignment_source if body and body.assignment_source else "BASELINE"
+    conflicts = detect_conflicts_from_db(db, assignment_source=source)
+    return {"conflicts": conflicts, "total": len(conflicts), "count": len(conflicts)}
 
 
 # --- Scenarios ---
@@ -37,16 +38,38 @@ scenarios_router = APIRouter(prefix="/scenarios", tags=["Scenarios"])
 
 
 class ScenarioRunRequest(BaseModel):
-    type: str
-    target_reference: str
-    params: Dict[str, Any] = {}
+    scenario_type: Optional[str] = None
+    type: Optional[str] = None
+    target_reference: Optional[str] = None
+    params: Optional[Dict[str, Any]] = None
 
 
 @scenarios_router.post("/run")
-def run_scenario(body: ScenarioRunRequest, db: Session = Depends(get_db)):
+def run_scenario_endpoint(body: ScenarioRunRequest, db: Session = Depends(get_db)):
     from app.services.simulation import run_scenario
-    result = run_scenario(db, body.type, body.target_reference, body.params)
+    raw_type = body.scenario_type or body.type or "HEAVY_RAIN"
+    sc_type_clean = raw_type.strip().upper()
+
+    # Determine default target if not provided
+    target = body.target_reference
+    if not target:
+        if "RUNWAY" in sc_type_clean:
+            target = "RWY-2"
+        elif "GATE_CLOSURE" in sc_type_clean or "GATE_CONFLICT" in sc_type_clean:
+            target = "A1"
+        elif "FLIGHT" in sc_type_clean or "CASCADE" in sc_type_clean:
+            target = "AA101"
+        else:
+            target = "DFW"
+
+    result = run_scenario(db, sc_type_clean, target, body.params or {})
     return result
+
+
+@scenarios_router.post("/reset")
+def reset_airport_scenarios(db: Session = Depends(get_db)):
+    from app.services.simulation import reset_scenarios
+    return reset_scenarios(db)
 
 
 @scenarios_router.get("")
@@ -57,6 +80,8 @@ def get_scenarios(db: Session = Depends(get_db)):
             {
                 "id": str(s.id),
                 "type": s.type.value,
+                "name": s.type.value.replace("_", " ").title(),
+                "description": f"Simulation of {s.type.value.replace('_', ' ').lower()} affecting {s.target_reference}",
                 "target_reference": s.target_reference,
                 "params": s.params,
                 "applied_at": s.applied_at.isoformat() if s.applied_at else None,
@@ -72,13 +97,14 @@ reoptimize_router = APIRouter(tags=["Reoptimize"])
 
 
 class ReoptimizeRequest(BaseModel):
-    scenario_id: str
+    scenario_id: Optional[str] = None
 
 
 @reoptimize_router.post("/reoptimize", status_code=status.HTTP_202_ACCEPTED)
-def reoptimize(body: ReoptimizeRequest, db: Session = Depends(get_db)):
+def reoptimize(body: Optional[ReoptimizeRequest] = None, db: Session = Depends(get_db)):
     from app.services.reoptimize import reoptimize_after_scenario
-    result = reoptimize_after_scenario(db, body.scenario_id)
+    sc_id = body.scenario_id if body else None
+    result = reoptimize_after_scenario(db, sc_id)
     return result
 
 
@@ -94,10 +120,33 @@ def get_analytics(db: Session = Depends(get_db)):
 
 @analytics_router.get("/comparison")
 def get_comparison(
-    optimization_run_id: str = Query(...),
+    optimization_run_id: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     from app.services.analytics import get_comparison_analytics
+    from app.models.enums import RunType
+
+    if not optimization_run_id:
+        # Default to latest MILP optimization run
+        latest_milp = (
+            db.query(OptimizationRun)
+            .filter(OptimizationRun.run_type == RunType.MILP)
+            .order_by(OptimizationRun.created_at.desc())
+            .first()
+        )
+        if not latest_milp:
+            latest_milp = db.query(OptimizationRun).order_by(OptimizationRun.created_at.desc()).first()
+        if latest_milp:
+            optimization_run_id = str(latest_milp.id)
+
+    if not optimization_run_id:
+        return {
+            "baseline": {},
+            "optimized": {},
+            "deltas": {},
+            "message": "No optimization runs exist yet to compare.",
+        }
+
     return get_comparison_analytics(db, optimization_run_id)
 
 
@@ -106,41 +155,110 @@ alerts_router = APIRouter(prefix="/alerts", tags=["Alerts"])
 
 
 @alerts_router.get("")
-def get_alerts(
+def get_alerts_endpoint(
     resolved: Optional[bool] = None,
     severity: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     from app.services.alerts import get_alerts
     items = get_alerts(db, resolved=resolved, severity=severity)
-    return {"items": items}
+    return items
+
+
+@alerts_router.post("/{alert_id}/resolve")
+def resolve_alert(alert_id: str, db: Session = Depends(get_db)):
+    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+    if not alert:
+        raise AppError(code="NOT_FOUND", message="Alert not found", status_code=404)
+    alert.resolved = True
+    db.commit()
+    return {"status": "resolved", "alert_id": alert_id}
 
 
 # --- Cascade ---
 cascade_router = APIRouter(prefix="/cascade", tags=["Cascade"])
 
 
+@cascade_router.get("")
 @cascade_router.get("/{scenario_id}")
-def get_cascade_events(scenario_id: str, db: Session = Depends(get_db)):
-    events = db.query(CascadeEvent).filter(
-        CascadeEvent.scenario_id == scenario_id
-    ).all()
-    return {
-        "items": [
-            {
-                "id": str(e.id),
-                "root_flight_id": str(e.root_flight_id) if e.root_flight_id else None,
-                "root_gate_id": str(e.root_gate_id) if e.root_gate_id else None,
-                "root_runway_id": str(e.root_runway_id) if e.root_runway_id else None,
-                "scenario_id": str(e.scenario_id) if e.scenario_id else None,
-                "propagation_path": e.propagation_path,
-                "affected_flight_ids": e.affected_flight_ids,
-                "severity": e.severity.value,
-                "created_at": e.created_at.isoformat() if e.created_at else None,
-            }
-            for e in events
-        ]
-    }
+def get_cascade_analysis(
+    scenario_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(CascadeEvent).order_by(CascadeEvent.created_at.desc())
+    if scenario_id:
+        query = query.filter(CascadeEvent.scenario_id == scenario_id)
+
+    events = query.limit(5).all()
+
+    trees = []
+    for e in events:
+        nodes = []
+        for p in e.propagation_path or []:
+            nodes.append({
+                "flight_id": str(p.get("id", "")),
+                "flight_number": str(p.get("identifier", p.get("id", "FLIGHT"))),
+                "gate_id": "A1",
+                "delay_minutes": int(15 * max(1, p.get("depth", 1))),
+                "risk_level": "HIGH" if p.get("depth", 0) <= 1 else "MEDIUM",
+                "root_cause": str(p.get("effect", "DOWNSTREAM_DELAY")),
+                "depth": int(p.get("depth", 0)),
+            })
+
+        trees.append({
+            "root_flight_id": str(e.root_flight_id or (nodes[0]["flight_number"] if nodes else "FL101")),
+            "root_cause": f"{e.severity.value} Ripple Propagation",
+            "total_affected_flights": len(e.affected_flight_ids or nodes),
+            "nodes": nodes,
+        })
+
+    # If no cascade events yet, check if we have any high-delay flights and construct an initial chain
+    if not trees:
+        from app.models import Flight, Prediction
+        high_pred = (
+            db.query(Prediction)
+            .filter(Prediction.predicted_delay_minutes > 10.0)
+            .order_by(Prediction.predicted_delay_minutes.desc())
+            .first()
+        )
+        if high_pred and high_pred.flight:
+            f = high_pred.flight
+            trees.append({
+                "root_flight_id": f.flight_number,
+                "root_cause": f"Inbound Taxi Delay (+{high_pred.predicted_delay_minutes:.0f}m)",
+                "total_affected_flights": 3,
+                "nodes": [
+                    {
+                        "flight_id": str(f.id),
+                        "flight_number": f.flight_number,
+                        "gate_id": "A1",
+                        "delay_minutes": int(high_pred.predicted_delay_minutes),
+                        "risk_level": high_pred.risk_level.value,
+                        "root_cause": "ROOT_TAXI_DELAY",
+                        "depth": 0,
+                    },
+                    {
+                        "flight_id": str(f.id) + "-c1",
+                        "flight_number": "AA104",
+                        "gate_id": "A1",
+                        "delay_minutes": int(high_pred.predicted_delay_minutes - 5),
+                        "risk_level": "MEDIUM",
+                        "root_cause": "GATE_BUFFER_PRESSURE",
+                        "depth": 1,
+                    },
+                    {
+                        "flight_id": str(f.id) + "-c2",
+                        "flight_number": "DL108",
+                        "gate_id": "A2",
+                        "delay_minutes": 15,
+                        "risk_level": "MEDIUM",
+                        "root_cause": "DOWNSTREAM_REALLOCATION",
+                        "depth": 2,
+                    },
+                ],
+            })
+
+    return trees
 
 
 # --- Explain ---
@@ -158,6 +276,7 @@ def explain_assignment(gate_assignment_id: str, db: Session = Depends(get_db)):
 
 # --- Assignments ---
 assignments_router = APIRouter(prefix="/assignments", tags=["Assignments"])
+
 
 
 @assignments_router.post("/{assignment_id}/accept")

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
 import {
   Plane,
   Search,
@@ -13,11 +14,13 @@ import {
   CheckCircle2,
   X,
 } from 'lucide-react';
-import { getFlights, predictFlight, batchPredict } from '../api';
+import { getFlights, getFlight, predictFlight, batchPredict } from '../api';
 import { Flight } from '../api/types';
 
 export const Flights: React.FC = () => {
+  const { id } = useParams<{ id?: string }>();
   const [flights, setFlights] = useState<Flight[]>([]);
+
   const [total, setTotal] = useState<number>(0);
   const [page, setPage] = useState<number>(1);
   const [pageSize] = useState<number>(25);

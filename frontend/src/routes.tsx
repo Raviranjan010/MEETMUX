@@ -45,6 +45,7 @@ export const AppRoutes: React.FC = () => {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="flights" element={<Flights />} />
+        <Route path="flights/:id" element={<Flights />} />
         <Route path="gates" element={<Gates />} />
         <Route path="airport" element={<AirportMap />} />
         <Route path="predictions" element={<Predictions />} />
