@@ -15,7 +15,7 @@ from app.core.errors import (
     http_error_handler,
     generic_error_handler,
 )
-from app.api.routes import health
+from app.api.routes import health, data
 from app.ml.registry import registry
 
 setup_logging(level="INFO")
@@ -70,6 +70,7 @@ app.add_exception_handler(Exception, generic_error_handler)
 
 # Include Routers
 app.include_router(health.router, prefix="/api")
+app.include_router(data.router, prefix="/api")
 
 
 @app.get("/")
