@@ -262,6 +262,7 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_predictions_flight_id'), 'predictions', ['flight_id'], unique=False)
+    op.create_foreign_key('fk_scenarios_resulting_optimization_run_id', 'scenarios', 'optimization_runs', ['resulting_optimization_run_id'], ['id'], ondelete='SET NULL')
     # ### end Alembic commands ###
 
 
