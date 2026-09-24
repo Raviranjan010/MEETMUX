@@ -1,23 +1,24 @@
-from sqlalchemy import Column, String, Numeric, Enum, ForeignKey, Index
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.types import JSON
+from datetime import datetime
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Index
 from sqlalchemy.orm import relationship
-from app.core.db import Base
-from app.models.base import CommonMixin, GUID
-from app.models.enums import RiskLevel
-
-# Use JSONB on PostgreSQL, JSON on others
-JSONType = JSON().with_variant(JSONB, "postgresql")
+from app.database.database import Base
 
 
-class Prediction(CommonMixin, Base):
-    __tablename__ = "predictions"
+class DelayPrediction(Base):
+    __tablename__ = "delay_predictions"
 
-    flight_id = Column(GUID(), ForeignKey("flights.id", ondelete="RESTRICT"), nullable=False, index=True)
-    model_version = Column(String(32), nullable=False)
-    predicted_taxi_minutes = Column(Numeric(6, 2), nullable=False)
-    predicted_delay_minutes = Column(Numeric(6, 2), nullable=False)
-    risk_level = Column(Enum(RiskLevel), nullable=False)
-    feature_snapshot = Column(JSONType, nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    flight_id = Column(Integer, ForeignKey("flights.id", ondelete="CASCADE"), nullable=True, index=True)
+    
+    # Direct flight fields for standalone/manual predictions
+    flight_number = Column(String(20), nullable=True)
+    predicted_delay_minutes = Column(Float, nullable=False)
+    delay_category = Column(String(30), nullable=False)  # On Time, Low, Moderate, High, Severe
+    confidence_score = Column(Float, nullable=True)
+    contributing_features = Column(String(1000), nullable=True) # JSON or key:val string
+    
+    model_version = Column(String(50), default="1.0.0")
+    prediction_timestamp = Column(DateTime, default=datetime.utcnow, index=True)
 
+    # Relationships
     flight = relationship("Flight", back_populates="predictions")

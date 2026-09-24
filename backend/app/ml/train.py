@@ -1,199 +1,201 @@
 import os
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["OMP_NUM_THREADS"] = "1"
-
 import json
-import logging
-from typing import Optional, Dict, Any
-from datetime import datetime, timezone
-import numpy as np
-import pandas as pd
 import joblib
-
-from sklearn.model_selection import train_test_split
+from datetime import datetime
+import pandas as pd
+import numpy as np
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, HistGradientBoostingRegressor
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.pipeline import Pipeline
 
-from app.ml.features import (
-    FEATURE_COLUMNS,
-    compute_flight_features,
-    AIRLINES_MAP,
-    RUNWAYS_MAP,
-    SIZE_CLASS_MAP,
-    WEATHER_SEVERITY_MAP,
-)
-
-logger = logging.getLogger(__name__)
+from app.ml.data_loader import generate_synthetic_airport_dataset, load_dataset
+from app.ml.feature_engineering import extract_features
+from app.ml.preprocessing import build_preprocessor, ALL_FEATURE_COLUMNS, NUMERICAL_FEATURES, CATEGORICAL_FEATURES
+from app.ml.evaluate import evaluate_model
+from app.core.config import settings
+from app.core.logging import logger
 
 
-def generate_training_data(n_samples: int = 1500, random_state: int = 42) -> pd.DataFrame:
+def train_delay_model(
+    csv_path: str = None,
+    output_dir: str = "models",
+    sample_dir: str = "data/sample"
+) -> dict:
     """
-    Generates deterministic historical flight dataset for training taxi-in delay models.
-    Realistic domain relationships:
-    - RWY-1 baseline = 12.0 min, RWY-2 baseline = 15.0 min
-    - Traffic density increases taxi time by 0.8 min per extra flight
-    - Heavy weather adds 3.0 to 10.0 min
-    - Large aircraft take 2.5 min longer to taxi
-    - Remote gates add 4.0 min
-    - Day/hour peak curves
+    Complete ML pipeline:
+    1. Loads dataset
+    2. Extracts non-leaking features
+    3. Chronological split (70% train / 15% val / 15% test)
+    4. Trains multiple models (Linear Regression, Random Forest, Gradient Boosting)
+    5. Evaluates and selects the champion model
+    6. Persists artifacts and metadata
     """
-    rng = np.random.RandomState(random_state)
+    logger.info("Initializing ML training pipeline...")
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(sample_dir, exist_ok=True)
 
-    airlines = list(AIRLINES_MAP.keys())[:-1]  # AA, DL, UA, BA, LH, AF
-    runways = ["RWY-1", "RWY-2"]
-    size_classes = ["SMALL", "MEDIUM", "LARGE"]
-    weather_conds = list(WEATHER_SEVERITY_MAP.keys())
-    weather_weights = [0.60, 0.15, 0.10, 0.05, 0.03, 0.03, 0.02, 0.02]
+    # 1. Load or Generate Dataset
+    if csv_path and os.path.exists(csv_path):
+        df = pd.read_csv(csv_path)
+    else:
+        sample_flights_file = os.path.join(sample_dir, "flights.csv")
+        sample_gates_file = os.path.join(sample_dir, "gates.csv")
+        sample_weather_file = os.path.join(sample_dir, "weather.csv")
+        
+        df = generate_synthetic_airport_dataset(num_samples=5000)
+        df.to_csv(sample_flights_file, index=False)
+        logger.info(f"Saved sample flight dataset to {sample_flights_file}")
 
-    base_date = datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)
-    records = []
+        # Also generate gates & weather sample files if not present
+        if not os.path.exists(sample_gates_file):
+            gates_df = pd.DataFrame([
+                {"gate_number": "A01", "terminal": "T1", "gate_type": "Contact", "supported_aircraft_types": "A320,A321,B737", "is_international": False, "is_available": True},
+                {"gate_number": "A02", "terminal": "T1", "gate_type": "Contact", "supported_aircraft_types": "A320,A321,B737", "is_international": False, "is_available": True},
+                {"gate_number": "A03", "terminal": "T1", "gate_type": "Remote", "supported_aircraft_types": "A320,B737", "is_international": False, "is_available": True},
+                {"gate_number": "B01", "terminal": "T2", "gate_type": "Contact", "supported_aircraft_types": "A320,A321,B737,B787", "is_international": False, "is_available": True},
+                {"gate_number": "B02", "terminal": "T2", "gate_type": "Contact", "supported_aircraft_types": "A320,A321,B737,B787,B777", "is_international": False, "is_available": True},
+                {"gate_number": "B03", "terminal": "T2", "gate_type": "Remote", "supported_aircraft_types": "A320,A321,B737", "is_international": False, "is_available": True},
+                {"gate_number": "C01", "terminal": "T3", "gate_type": "Contact", "supported_aircraft_types": "A320,A321,B737,B787,B777,A350", "is_international": True, "is_available": True},
+                {"gate_number": "C02", "terminal": "T3", "gate_type": "Contact", "supported_aircraft_types": "A320,A321,B737,B787,B777,A350", "is_international": True, "is_available": True},
+                {"gate_number": "C03", "terminal": "T3", "gate_type": "Contact", "supported_aircraft_types": "A320,A321,B737,B787,B777,A350", "is_international": True, "is_available": True},
+                {"gate_number": "C04", "terminal": "T3", "gate_type": "Remote", "supported_aircraft_types": "A320,A321,B737,B787,B777", "is_international": True, "is_available": True},
+            ])
+            gates_df.to_csv(sample_gates_file, index=False)
 
-    for i in range(n_samples):
-        # Sample timestamp throughout a month
-        day_offset = rng.randint(0, 30)
-        raw_p = np.array([1, 1, 1, 1, 2, 3, 5, 7, 8, 7, 6, 5, 5, 5, 6, 7, 8, 7, 5, 4, 3, 2, 1, 1], dtype=float)
-        probs = raw_p / raw_p.sum()
-        hour = rng.choice(np.arange(0, 24), p=probs)
-        minute = rng.randint(0, 60)
-        flight_dt = datetime(2026, 1, 1 + day_offset, hour, minute, tzinfo=timezone.utc)
+        if not os.path.exists(sample_weather_file):
+            weather_df = pd.DataFrame([
+                {"timestamp": datetime.utcnow().isoformat(), "temperature": 28.5, "wind_speed": 12.0, "visibility": 7.5, "precipitation": 0.0, "weather_condition": "Clear"},
+                {"timestamp": (datetime.utcnow() - pd.Timedelta(hours=1)).isoformat(), "temperature": 27.8, "wind_speed": 14.5, "visibility": 6.0, "precipitation": 0.2, "weather_condition": "Rain"},
+            ])
+            weather_df.to_csv(sample_weather_file, index=False)
 
-        airline = rng.choice(airlines)
-        is_intl = airline in ["BA", "LH", "AF"] or rng.rand() < 0.2
-        route_type = "INTERNATIONAL" if is_intl else "DOMESTIC"
-        size_class = rng.choice(size_classes, p=[0.25, 0.55, 0.20])
-        runway = rng.choice(runways, p=[0.55, 0.45])
-        weather = rng.choice(weather_conds, p=weather_weights)
-        gate_type = "REMOTE" if rng.rand() < 0.15 else "JETBRIDGE"
+    total_rows = len(df)
+    logger.info(f"Loaded dataset containing {total_rows} flight records.")
 
-        # Traffic density correlates with peak hours
-        peak_factor = 1.8 if 8 <= hour <= 11 or 16 <= hour <= 19 else 0.8
-        traffic_30m = int(max(0, rng.poisson(lam=4 * peak_factor)))
+    # 2. Extract Features
+    featured_df = extract_features(df)
+    
+    # Sort chronologically to respect temporal boundaries
+    featured_df = featured_df.sort_values(by="scheduled_arrival").reset_index(drop=True)
 
-        features = compute_flight_features(
-            scheduled_arrival=flight_dt,
-            route_type=route_type,
-            aircraft_size_class=size_class,
-            airline=airline,
-            runway_code=runway,
-            weather_condition=weather,
-            traffic_density_30m=traffic_30m,
-            gate_type=gate_type,
-        )
+    X = featured_df[ALL_FEATURE_COLUMNS]
+    y = featured_df["taxi_delay_minutes"].values
 
-        # Ground truth actual taxi time (minutes)
-        base_taxi = 12.0 if runway == "RWY-1" else 15.0
-        weather_delay = WEATHER_SEVERITY_MAP[weather] * 1.5
-        traffic_delay = traffic_30m * 0.75
-        size_delay = (SIZE_CLASS_MAP[size_class] - 1) * 1.2
-        remote_delay = 3.5 if gate_type == "REMOTE" else 0.0
-        noise = rng.normal(0, 1.2)
+    # 3. Chronological Train / Val / Test Split (70% / 15% / 15%)
+    n_train = int(0.70 * total_rows)
+    n_val = int(0.15 * total_rows)
+    
+    X_train, y_train = X.iloc[:n_train], y[:n_train]
+    X_val, y_val = X.iloc[n_train:n_train + n_val], y[n_train:n_train + n_val]
+    X_test, y_test = X.iloc[n_train + n_val:], y[n_train + n_val:]
 
-        actual_taxi_minutes = max(
-            5.0,
-            base_taxi + weather_delay + traffic_delay + size_delay + remote_delay + noise
-        )
+    print("\n" + "="*60)
+    print("  AIRPORT DELAY ML TRAINING PIPELINE")
+    print("="*60)
+    print(f"Dataset Total Rows: {total_rows}")
+    print(f"Chronological Splits -> Train: {len(X_train)} | Val: {len(X_val)} | Test: {len(X_test)}")
+    print("="*60 + "\n")
 
-        row = dict(features)
-        row["actual_taxi_minutes"] = round(actual_taxi_minutes, 2)
-        records.append(row)
-
-    return pd.DataFrame(records)
-
-
-def train_and_evaluate_models(
-    df: Optional[pd.DataFrame] = None,
-    output_dir: str = "backend/models",
-    version: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    Trains 4 candidate regressors per docs/ML.md on 80/20 train/test split.
-    Selects best model by lowest test RMSE.
-    Saves model and metrics JSON.
-    """
-    if df is None:
-        df = generate_training_data(n_samples=1500, random_state=42)
-
-    if version is None:
-        version = f"{datetime.now(timezone.utc).strftime('%Y%m%d')}_v1"
-
-    X = df[FEATURE_COLUMNS]
-    y = df["actual_taxi_minutes"]
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.20, random_state=42
-    )
-
+    # 4. Candidates to Train
     candidates = {
-        "LinearRegression": LinearRegression(),
-        "RandomForestRegressor": RandomForestRegressor(n_estimators=100, max_depth=12, random_state=42),
-        "GradientBoostingRegressor": GradientBoostingRegressor(n_estimators=100, max_depth=4, random_state=42),
-        "HistGradientBoostingRegressor": HistGradientBoostingRegressor(max_iter=100, random_state=42),
+        "Linear Regression": LinearRegression(),
+        "Random Forest Regressor": RandomForestRegressor(n_estimators=100, max_depth=12, random_state=42, n_jobs=-1),
+        "Gradient Boosting Regressor": GradientBoostingRegressor(n_estimators=120, learning_rate=0.08, max_depth=5, random_state=42)
     }
 
-    results = {}
-    best_name = None
-    best_rmse = float("inf")
-    best_model = None
+    results = []
+    trained_pipelines = {}
 
     for name, model in candidates.items():
-        model.fit(X_train, y_train)
-        preds = model.predict(X_test)
+        preprocessor = build_preprocessor()
+        pipeline = Pipeline(steps=[
+            ("preprocessor", preprocessor),
+            ("regressor", model)
+        ])
+        
+        pipeline.fit(X_train, y_train)
+        
+        val_metrics = evaluate_model(pipeline, X_val, y_val)
+        test_metrics = evaluate_model(pipeline, X_test, y_test)
+        
+        print(f"[{name}]")
+        print(f"  Validation -> MAE: {val_metrics['mae']:.2f} min | RMSE: {val_metrics['rmse']:.2f} min | R²: {val_metrics['r2']:.4f}")
+        print(f"  Test       -> MAE: {test_metrics['mae']:.2f} min | RMSE: {test_metrics['rmse']:.2f} min | R²: {test_metrics['r2']:.4f}\n")
+        
+        results.append({
+            "name": name,
+            "val_metrics": val_metrics,
+            "test_metrics": test_metrics
+        })
+        trained_pipelines[name] = pipeline
 
-        mae = float(mean_absolute_error(y_test, preds))
-        rmse = float(np.sqrt(mean_squared_error(y_test, preds)))
-        r2 = float(r2_score(y_test, preds))
+    # 5. Select Champion Model based on Validation MAE
+    best_candidate = min(results, key=lambda r: r["val_metrics"]["mae"])
+    champion_name = best_candidate["name"]
+    champion_pipeline = trained_pipelines[champion_name]
 
-        results[name] = {
-            "mae": round(mae, 4),
-            "rmse": round(rmse, 4),
-            "r2": round(r2, 4),
-        }
+    print("="*60)
+    print(f" Selected Champion Model: {champion_name}")
+    print(f" Best Test MAE: {best_candidate['test_metrics']['mae']:.2f} minutes (R² = {best_candidate['test_metrics']['r2']:.4f})")
+    print("="*60 + "\n")
 
-        logger.info(f"Model {name} -> MAE: {mae:.4f}, RMSE: {rmse:.4f}, R2: {r2:.4f}")
+    # 6. Extract Feature Importance if available
+    regressor = champion_pipeline.named_steps["regressor"]
+    feature_importances = []
+    
+    if hasattr(regressor, "feature_importances_"):
+        ohe = champion_pipeline.named_steps["preprocessor"].named_transformers_["cat"].named_steps["onehot"]
+        cat_feature_names = list(ohe.get_feature_names_out(CATEGORICAL_FEATURES))
+        all_feature_names = NUMERICAL_FEATURES + cat_feature_names
+        
+        importances = regressor.feature_importances_
+        # Group back to high-level features for clarity
+        grouped_importances = {feat: 0.0 for feat in ALL_FEATURE_COLUMNS}
+        
+        for name_idx, imp in enumerate(importances):
+            name_str = all_feature_names[name_idx] if name_idx < len(all_feature_names) else "unknown"
+            matched = False
+            for parent_feat in ALL_FEATURE_COLUMNS:
+                if name_str.startswith(parent_feat):
+                    grouped_importances[parent_feat] += float(imp)
+                    matched = True
+                    break
+            if not matched and name_idx < len(NUMERICAL_FEATURES):
+                grouped_importances[NUMERICAL_FEATURES[name_idx]] += float(imp)
 
-        if rmse < best_rmse:
-            best_rmse = rmse
-            best_name = name
-            best_model = model
+        # Normalize and sort
+        total_imp = sum(grouped_importances.values()) or 1.0
+        feature_importances = [
+            {"name": k, "importance": round(v / total_imp, 4)}
+            for k, v in sorted(grouped_importances.items(), key=lambda item: item[1], reverse=True)
+            if v > 0.001
+        ]
 
-    os.makedirs(output_dir, exist_ok=True)
+    # 7. Persist Artifacts
+    model_file = os.path.join(output_dir, "delay_model.joblib")
+    preprocessor_file = os.path.join(output_dir, "preprocessor.joblib")
+    metadata_file = os.path.join(output_dir, "metadata.json")
 
-    # Persist best model
-    model_filename = f"taxi_delay_{version}.joblib"
-    model_path = os.path.join(output_dir, model_filename)
-    joblib.dump(best_model, model_path)
+    joblib.dump(champion_pipeline, model_file)
+    joblib.dump(champion_pipeline.named_steps["preprocessor"], preprocessor_file)
 
-    # Persist metrics JSON
-    metrics_payload = {
-        "version": version,
-        "selected_model": best_name,
-        "selected_metrics": results[best_name],
-        "all_candidates": results,
-        "feature_columns": FEATURE_COLUMNS,
-        "train_samples": len(X_train),
-        "test_samples": len(X_test),
-        "created_at": datetime.now(timezone.utc).isoformat(),
+    metadata = {
+        "model_name": champion_name,
+        "version": "1.0.0",
+        "features": ALL_FEATURE_COLUMNS,
+        "metrics": best_candidate["test_metrics"],
+        "training_timestamp": datetime.utcnow().isoformat(),
+        "total_samples": total_rows,
+        "feature_importances": feature_importances,
+        "model_comparisons": results
     }
 
-    metrics_filename = f"metrics_{version}.json"
-    metrics_path = os.path.join(output_dir, metrics_filename)
-    with open(metrics_path, "w") as f:
-        json.dump(metrics_payload, f, indent=2)
+    with open(metadata_file, "w") as f:
+        json.dump(metadata, f, indent=2)
 
-    logger.info(f"Best model '{best_name}' (RMSE={best_rmse:.4f}) persisted to {model_path}")
-    logger.info(f"Metrics saved to {metrics_path}")
-
-    return {
-        "selected_model": best_name,
-        "version": version,
-        "model_path": model_path,
-        "metrics_path": metrics_path,
-        "metrics": metrics_payload,
-    }
+    logger.info(f"Model and artifacts successfully saved to {output_dir}")
+    return metadata
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    train_and_evaluate_models()
+    train_delay_model()

@@ -1,0 +1,154 @@
+{
+  "model_name": "Gradient Boosting Regressor",
+  "version": "1.0.0",
+  "features": [
+    "hour",
+    "day_of_week",
+    "month",
+    "is_weekend",
+    "is_peak_hour",
+    "scheduled_duration_minutes",
+    "turnaround_minutes",
+    "active_flights",
+    "flights_per_hour",
+    "arrivals_per_hour",
+    "departures_per_hour",
+    "temperature",
+    "wind_speed",
+    "visibility",
+    "precipitation",
+    "airline",
+    "aircraft_type",
+    "origin",
+    "destination",
+    "terminal",
+    "runway",
+    "weather_condition"
+  ],
+  "metrics": {
+    "mae": 3.508,
+    "rmse": 4.415,
+    "r2": 0.7986
+  },
+  "training_timestamp": "2026-09-24T19:42:29.947472",
+  "total_samples": 5000,
+  "feature_importances": [
+    {
+      "name": "is_peak_hour",
+      "importance": 0.3823
+    },
+    {
+      "name": "precipitation",
+      "importance": 0.2535
+    },
+    {
+      "name": "active_flights",
+      "importance": 0.137
+    },
+    {
+      "name": "visibility",
+      "importance": 0.0705
+    },
+    {
+      "name": "weather_condition",
+      "importance": 0.0561
+    },
+    {
+      "name": "airline",
+      "importance": 0.0435
+    },
+    {
+      "name": "wind_speed",
+      "importance": 0.0092
+    },
+    {
+      "name": "temperature",
+      "importance": 0.0081
+    },
+    {
+      "name": "scheduled_duration_minutes",
+      "importance": 0.0065
+    },
+    {
+      "name": "origin",
+      "importance": 0.0058
+    },
+    {
+      "name": "destination",
+      "importance": 0.0047
+    },
+    {
+      "name": "flights_per_hour",
+      "importance": 0.0041
+    },
+    {
+      "name": "hour",
+      "importance": 0.0038
+    },
+    {
+      "name": "aircraft_type",
+      "importance": 0.0038
+    },
+    {
+      "name": "runway",
+      "importance": 0.0024
+    },
+    {
+      "name": "day_of_week",
+      "importance": 0.0024
+    },
+    {
+      "name": "departures_per_hour",
+      "importance": 0.002
+    },
+    {
+      "name": "terminal",
+      "importance": 0.0019
+    },
+    {
+      "name": "turnaround_minutes",
+      "importance": 0.0015
+    }
+  ],
+  "model_comparisons": [
+    {
+      "name": "Linear Regression",
+      "val_metrics": {
+        "mae": 3.541,
+        "rmse": 4.449,
+        "r2": 0.8012
+      },
+      "test_metrics": {
+        "mae": 3.477,
+        "rmse": 4.375,
+        "r2": 0.8023
+      }
+    },
+    {
+      "name": "Random Forest Regressor",
+      "val_metrics": {
+        "mae": 3.527,
+        "rmse": 4.453,
+        "r2": 0.8008
+      },
+      "test_metrics": {
+        "mae": 3.529,
+        "rmse": 4.431,
+        "r2": 0.7971
+      }
+    },
+    {
+      "name": "Gradient Boosting Regressor",
+      "val_metrics": {
+        "mae": 3.514,
+        "rmse": 4.401,
+        "r2": 0.8054
+      },
+      "test_metrics": {
+        "mae": 3.508,
+        "rmse": 4.415,
+        "r2": 0.7986
+      }
+    }
+  ]
+}

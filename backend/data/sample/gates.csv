@@ -1,0 +1,11 @@
+gate_number,terminal,gate_type,supported_aircraft_types,is_international,is_available
+A01,T1,Contact,"A320,A321,B737",False,True
+A02,T1,Contact,"A320,A321,B737",False,True
+A03,T1,Remote,"A320,B737",False,True
+B01,T2,Contact,"A320,A321,B737,B787",False,True
+B02,T2,Contact,"A320,A321,B737,B787,B777",False,True
+B03,T2,Remote,"A320,A321,B737",False,True
+C01,T3,Contact,"A320,A321,B737,B787,B777,A350",True,True
+C02,T3,Contact,"A320,A321,B737,B787,B777,A350",True,True
+C03,T3,Contact,"A320,A321,B737,B787,B777,A350",True,True
+C04,T3,Remote,"A320,A321,B737,B787,B777",True,True
