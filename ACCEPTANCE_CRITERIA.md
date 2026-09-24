@@ -9,9 +9,9 @@ Status: SOURCE OF TRUTH, priority 3 (below REQUIREMENTS.md, above ARCHITECTURE.m
 - [x] Frontend loads `/dashboard` with zero browser console errors.
 
 ## AC-P2 Database
-- [ ] All 14 entities in docs/DATABASE.md exist as tables with the documented columns, PK/FK, indexes, unique constraints.
-- [ ] Seed script inserts exactly 100 flights, 30 gates, 2 runways, and is idempotent (re-running doesn't duplicate rows).
-- [ ] A pytest suite asserts row counts and at least one FK integrity check per relationship.
+- [x] All 14 entities in docs/DATABASE.md exist as tables with the documented columns, PK/FK, indexes, unique constraints.
+- [x] Seed script inserts exactly 100 flights, 30 gates, 2 runways, and is idempotent (re-running doesn't duplicate rows).
+- [x] A pytest suite asserts row counts and at least one FK integrity check per relationship.
 
 ## AC-P3 Data Pipeline
 - [ ] Malformed CSV (bad timestamp, missing required column, duplicate flight_id) is rejected with a structured 422 error naming the row and field — never silently dropped or accepted.
