@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "bac
 
 from app.core.config import settings
 from app.core.db import Base
+import app.models  # noqa: F401 - Register all models with Base.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
