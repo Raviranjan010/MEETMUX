@@ -16,6 +16,19 @@ from app.core.errors import (
     generic_error_handler,
 )
 from app.api.routes import health, data
+from app.api.routes import flights, gates, predictions, optimizer
+from app.api.routes.endpoints import (
+    conflicts_router,
+    scenarios_router,
+    reoptimize_router,
+    analytics_router,
+    alerts_router,
+    cascade_router,
+    explain_router,
+    assignments_router,
+    config_router,
+    runways_router,
+)
 from app.ml.registry import registry
 
 setup_logging(level="INFO")
@@ -68,9 +81,23 @@ app.add_exception_handler(RequestValidationError, validation_error_handler)
 app.add_exception_handler(StarletteHTTPException, http_error_handler)
 app.add_exception_handler(Exception, generic_error_handler)
 
-# Include Routers
+# Include Routers - all under /api prefix
 app.include_router(health.router, prefix="/api")
 app.include_router(data.router, prefix="/api")
+app.include_router(flights.router, prefix="/api")
+app.include_router(gates.router, prefix="/api")
+app.include_router(predictions.router, prefix="/api")
+app.include_router(optimizer.router, prefix="/api")
+app.include_router(conflicts_router, prefix="/api")
+app.include_router(scenarios_router, prefix="/api")
+app.include_router(reoptimize_router, prefix="/api")
+app.include_router(analytics_router, prefix="/api")
+app.include_router(alerts_router, prefix="/api")
+app.include_router(cascade_router, prefix="/api")
+app.include_router(explain_router, prefix="/api")
+app.include_router(assignments_router, prefix="/api")
+app.include_router(config_router, prefix="/api")
+app.include_router(runways_router, prefix="/api")
 
 
 @app.get("/")

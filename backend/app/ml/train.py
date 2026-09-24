@@ -5,6 +5,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 
 import json
 import logging
+from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
@@ -52,12 +53,9 @@ def generate_training_data(n_samples: int = 1500, random_state: int = 42) -> pd.
     for i in range(n_samples):
         # Sample timestamp throughout a month
         day_offset = rng.randint(0, 30)
-        hour = rng.choice(np.arange(0, 24), p=[
-            0.01, 0.01, 0.01, 0.01, 0.01, 0.03,
-            0.06, 0.08, 0.09, 0.08, 0.07, 0.06,
-            0.06, 0.06, 0.07, 0.08, 0.09, 0.07,
-            0.05, 0.04, 0.03, 0.02, 0.01, 0.01
-        ])
+        raw_p = np.array([1, 1, 1, 1, 2, 3, 5, 7, 8, 7, 6, 5, 5, 5, 6, 7, 8, 7, 5, 4, 3, 2, 1, 1], dtype=float)
+        probs = raw_p / raw_p.sum()
+        hour = rng.choice(np.arange(0, 24), p=probs)
         minute = rng.randint(0, 60)
         flight_dt = datetime(2026, 1, 1 + day_offset, hour, minute, tzinfo=timezone.utc)
 

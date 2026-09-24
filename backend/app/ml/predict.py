@@ -1,6 +1,11 @@
+"""
+ML prediction service per docs/ML.md.
+FR-3: Predict runway taxi delay per flight.
+"""
 import logging
 from typing import Dict, Any, Optional, List
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
 import pandas as pd
 from sqlalchemy.orm import Session
 
@@ -30,7 +35,6 @@ def predict_for_flight(
     Throws AppError(503, MODEL_UNAVAILABLE) if model is not loaded.
     """
     if not registry.is_loaded():
-        # Attempt to load
         loaded = registry.load_latest()
         if not loaded:
             raise AppError(
@@ -42,7 +46,7 @@ def predict_for_flight(
     # 1. Resolve runway base taxi time
     runway = flight.runway
     runway_code = runway.code if runway else "RWY-1"
-    taxi_base_minutes = runway.taxi_base_minutes if runway else 12.0
+    taxi_base_minutes = float(runway.taxi_base_minutes) if runway else 12.0
 
     # 2. Resolve weather
     if weather is None:
@@ -52,14 +56,18 @@ def predict_for_flight(
     # 3. Resolve aircraft size class
     size_class = flight.aircraft.size_class.value if flight.aircraft else "MEDIUM"
 
-    # 4. Resolve gate type if assigned
+    # 4. Resolve gate type if assigned (from latest assignment)
     gate_type = None
-    if flight.assigned_gate:
-        gate_type = flight.assigned_gate.gate_type.value
+    from app.models import GateAssignment
+    latest_assignment = db.query(GateAssignment).filter(
+        GateAssignment.flight_id == flight.id,
+        GateAssignment.gate_id.isnot(None),
+    ).order_by(GateAssignment.created_at.desc()).first()
+    if latest_assignment and latest_assignment.gate:
+        gate_type = latest_assignment.gate.gate_type.value
 
     # 5. Traffic density in 30-min window (schedule-based, non-leaking)
     start_win = flight.scheduled_arrival
-    from datetime import timedelta
     win_start = start_win - timedelta(minutes=15)
     win_end = start_win + timedelta(minutes=15)
     traffic_density = (
@@ -90,10 +98,10 @@ def predict_for_flight(
     predicted_taxi = float(registry.current_model.predict(df_feat)[0])
     predicted_taxi = max(5.0, round(predicted_taxi, 2))
 
-    # Delay is derived: predicted_taxi - scheduled_base
+    # Delay is derived: predicted_taxi - scheduled_base (R7)
     predicted_delay = max(0.0, round(predicted_taxi - taxi_base_minutes, 2))
 
-    # 8. Risk classification
+    # 8. Risk classification from system_config
     if config is None:
         config = db.query(SystemConfig).first()
     risk_level = classify_flight_risk(predicted_delay, config)
@@ -104,15 +112,8 @@ def predict_for_flight(
         f"hash={input_hash}]: taxi={predicted_taxi}m, delay={predicted_delay}m, risk={risk_level.value}"
     )
 
-    # Prediction explanation factors
-    factors = {
-        "base_taxi_minutes": taxi_base_minutes,
-        "runway": runway_code,
-        "traffic_density_30m": traffic_density,
-        "weather_condition": weather_cond,
-        "aircraft_size_class": size_class,
-        "input_hash": input_hash,
-    }
+    feature_snapshot = dict(features)
+    feature_snapshot["input_hash"] = input_hash
 
     result = {
         "flight_id": str(flight.id),
@@ -122,23 +123,42 @@ def predict_for_flight(
         "predicted_taxi_minutes": predicted_taxi,
         "predicted_delay_minutes": predicted_delay,
         "risk_level": risk_level.value,
-        "confidence_score": 0.88,  # Based on model test R2
-        "factors": factors,
+        "feature_snapshot": feature_snapshot,
     }
 
     if persist:
-        # Create or update prediction record in DB
         pred_record = Prediction(
             flight_id=flight.id,
             model_version=registry.current_version or "v1",
             predicted_taxi_minutes=predicted_taxi,
             predicted_delay_minutes=predicted_delay,
             risk_level=risk_level,
-            confidence_score=0.88,
-            factors=factors,
+            feature_snapshot=feature_snapshot,
         )
         db.add(pred_record)
         db.commit()
         result["prediction_id"] = str(pred_record.id)
 
     return result
+
+
+def predict_batch(
+    flight_ids: List[str],
+    db: Session,
+) -> List[Dict[str, Any]]:
+    """Run predictions for multiple flights."""
+    config = db.query(SystemConfig).first()
+    weather = db.query(WeatherRecord).order_by(WeatherRecord.recorded_at.desc()).first()
+    
+    results = []
+    for fid in flight_ids:
+        flight = db.query(Flight).filter(Flight.id == fid).first()
+        if flight:
+            try:
+                r = predict_for_flight(flight, db, weather=weather, config=config, persist=True)
+                results.append(r)
+            except Exception as e:
+                logger.error(f"Prediction failed for {fid}: {e}")
+                results.append({"flight_id": fid, "error": str(e)})
+    
+    return results
