@@ -55,6 +55,14 @@ export const Flights: React.FC = () => {
     fetchFlightData();
   }, [page, riskFilter, routeFilter]);
 
+  useEffect(() => {
+    if (id) {
+      getFlight(id)
+        .then((f) => setSelectedFlight(f))
+        .catch((err) => console.error('Failed to fetch flight by id', err));
+    }
+  }, [id]);
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setPage(1);

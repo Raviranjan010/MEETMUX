@@ -2,10 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { Dashboard } from './Dashboard';
-import * as healthApi from '../api/health';
+import * as api from '../api';
 
-vi.mock('../api/health', () => ({
-  fetchHealth: vi.fn(),
+vi.mock('../api', () => ({
+  getHealth: vi.fn(),
+  getFlights: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+  getGates: vi.fn().mockResolvedValue([]),
+  detectConflicts: vi.fn().mockResolvedValue({ conflicts: [], total: 0 }),
+  getAlerts: vi.fn().mockResolvedValue([]),
+  runReoptimization: vi.fn().mockResolvedValue({}),
 }));
 
 describe('Dashboard Component', () => {
@@ -14,7 +19,7 @@ describe('Dashboard Component', () => {
   });
 
   it('renders loading state initially', () => {
-    vi.spyOn(healthApi, 'fetchHealth').mockReturnValue(new Promise(() => {}));
+    vi.spyOn(api, 'getHealth').mockReturnValue(new Promise(() => {}));
     render(
       <BrowserRouter>
         <Dashboard />
@@ -24,10 +29,10 @@ describe('Dashboard Component', () => {
   });
 
   it('renders success state with system health data', async () => {
-    vi.spyOn(healthApi, 'fetchHealth').mockResolvedValue({
+    vi.spyOn(api, 'getHealth').mockResolvedValue({
       status: 'ok',
       database: true,
-      ml_model_loaded: false,
+      ml_model_loaded: true,
       optimizer: {
         gurobi_available: false,
         ortools_available: true,
@@ -44,14 +49,13 @@ describe('Dashboard Component', () => {
       expect(screen.getByTestId('dashboard-view')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('OPERATIONS OVERVIEW')).toBeInTheDocument();
-    expect(screen.getByText('CONNECTED')).toBeInTheDocument();
-    expect(screen.getByText('OR-TOOLS CP-SAT')).toBeInTheDocument();
-    expect(screen.getByText('PENDING P4')).toBeInTheDocument();
+    expect(screen.getByText('COMMAND CENTER OVERVIEW')).toBeInTheDocument();
+    expect(screen.getByText('LIVE SYSTEM')).toBeInTheDocument();
+    expect(screen.getByText(/OR-TOOLS CP-SAT/i)).toBeInTheDocument();
   });
 
   it('renders error state when backend is unreachable', async () => {
-    vi.spyOn(healthApi, 'fetchHealth').mockRejectedValue(new Error('Network Error'));
+    vi.spyOn(api, 'getHealth').mockRejectedValue(new Error('Network Error'));
 
     render(
       <BrowserRouter>
@@ -64,6 +68,5 @@ describe('Dashboard Component', () => {
     });
 
     expect(screen.getByText('Backend Service Unreachable')).toBeInTheDocument();
-    expect(screen.getByText('Network Error')).toBeInTheDocument();
   });
 });

@@ -49,6 +49,10 @@ export const Dashboard: React.FC = () => {
         getAlerts({ resolved: false }).catch(() => []),
       ]);
 
+      if (!hRes) {
+        setError('Backend Service Unreachable');
+      }
+
       setHealth(hRes);
       setFlights(fRes?.items || []);
       setGates(gRes || []);
@@ -132,7 +136,10 @@ export const Dashboard: React.FC = () => {
       </div>
 
       {error && (
-        <div className="p-4 bg-red/10 border border-red/30 rounded text-xs text-red flex items-center gap-2">
+        <div
+          data-testid="dashboard-error"
+          className="p-4 bg-red/10 border border-red/30 rounded text-xs text-red flex items-center gap-2"
+        >
           <AlertTriangle className="w-4 h-4 shrink-0" />
           <span>{error}</span>
         </div>
