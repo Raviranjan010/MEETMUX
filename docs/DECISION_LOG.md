@@ -46,3 +46,11 @@ Each entry: ID, decision, alternatives considered, rationale, consequences, stat
 
 ## D-015 — ML model selection method (recorded here once actually run)
 **Decision (pending real run):** Selection is by lowest test-set RMSE among the four candidate regressors (ML.md). Actual metrics and chosen model to be appended to this entry once Phase 4 executes — this entry intentionally has no numbers yet to avoid fabrication. **Status:** Open — update at Phase 4 completion.
+
+## D-016 — Minimal single-operator authentication
+**Decision:** Single-operator login gated by JWT bearer token. Credentials defined via environment variables (`OPERATOR_USERNAME`, `OPERATOR_PASSWORD`). All `/api/*` routes protected except `/api/health` and `/api/auth/login`. Frontend has `/login` page and a route guard (`ProtectedRoute`).
+**Alternatives:** No authentication (anyone with URL has full access), full multi-user RBAC with DB user tables and password resets.
+**Rationale:** Prevents unauthorized URL access during demo and deployment while strictly avoiding scope creep (no registration, email validation, or multi-role logic).
+**Consequences:** Requires JWT token header for API interactions; integrated into Phase 15 and Phase 16.
+**Status:** Accepted.
+

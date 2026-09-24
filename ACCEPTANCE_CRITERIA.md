@@ -3,10 +3,10 @@
 Status: SOURCE OF TRUTH, priority 3 (below REQUIREMENTS.md, above ARCHITECTURE.md). A phase is NOT complete until every AC listed under it is demonstrated true by an actual run (test output, curl response, screenshot/console log), never by static code reading alone.
 
 ## AC-P1 Foundation
-- [ ] `docker compose up` (or local uvicorn+vite) starts backend and frontend with zero import errors.
-- [ ] `GET /api/health` returns 200 with `{status, database: bool, ml_model_loaded: bool, optimizer: {gurobi_available: bool, ortools_available: bool}}` — all fields reflect real checks, not hardcoded `true`.
-- [ ] Alembic `upgrade head` runs cleanly against a fresh Postgres instance.
-- [ ] Frontend loads `/dashboard` with zero browser console errors.
+- [x] `docker compose up` (or local uvicorn+vite) starts backend and frontend with zero import errors.
+- [x] `GET /api/health` returns 200 with `{status, database: bool, ml_model_loaded: bool, optimizer: {gurobi_available: bool, ortools_available: bool}}` — all fields reflect real checks, not hardcoded `true`.
+- [x] Alembic `upgrade head` runs cleanly against a fresh Postgres instance.
+- [x] Frontend loads `/dashboard` with zero browser console errors.
 
 ## AC-P2 Database
 - [ ] All 14 entities in docs/DATABASE.md exist as tables with the documented columns, PK/FK, indexes, unique constraints.
