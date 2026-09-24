@@ -108,3 +108,75 @@ def get_optimization_run(
         "assignments": assignments,
         "created_at": run.created_at.isoformat() if run.created_at else None,
     }
+
+
+@router.post("/{run_id}/accept")
+def accept_optimization_run(run_id: str, db: Session = Depends(get_db)):
+    """POST /api/optimizer/{run_id}/accept - accept and commit all assignments in run."""
+    from app.models import AuditRecord
+    from app.models.enums import AuditAction, AssignmentStatus
+
+    run = db.query(OptimizationRun).filter(OptimizationRun.id == run_id).first()
+    if not run:
+        raise AppError(code="NOT_FOUND", message="Optimization run not found", status_code=404)
+
+    if run.validation_passed is False:
+        raise AppError(
+            code="VALIDATION_FAILED",
+            message="Cannot accept recommendation from a run that failed independent validation",
+            status_code=400,
+        )
+
+    for ga in run.assignments:
+        ga.assignment_status = AssignmentStatus.COMMITTED
+
+    audit = AuditRecord(
+        action=AuditAction.ASSIGNMENT_ACCEPT,
+        actor="operator",
+        reference_id=run.id,
+        details={
+            "optimization_run_id": str(run.id),
+            "run_type": run.run_type.value,
+            "assignments_count": len(run.assignments),
+        },
+    )
+    db.add(audit)
+    db.commit()
+
+    return {
+        "status": "accepted",
+        "optimization_run_id": str(run.id),
+        "assignments_committed": len(run.assignments),
+    }
+
+
+@router.post("/{run_id}/reject")
+def reject_optimization_run(run_id: str, db: Session = Depends(get_db)):
+    """POST /api/optimizer/{run_id}/reject - reject recommendation."""
+    from app.models import AuditRecord
+    from app.models.enums import AuditAction, AssignmentStatus
+
+    run = db.query(OptimizationRun).filter(OptimizationRun.id == run_id).first()
+    if not run:
+        raise AppError(code="NOT_FOUND", message="Optimization run not found", status_code=404)
+
+    for ga in run.assignments:
+        ga.assignment_status = AssignmentStatus.REJECTED
+
+    audit = AuditRecord(
+        action=AuditAction.ASSIGNMENT_REJECT,
+        actor="operator",
+        reference_id=run.id,
+        details={
+            "optimization_run_id": str(run.id),
+            "run_type": run.run_type.value,
+        },
+    )
+    db.add(audit)
+    db.commit()
+
+    return {
+        "status": "rejected",
+        "optimization_run_id": str(run.id),
+    }
+

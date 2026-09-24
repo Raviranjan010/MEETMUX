@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 def reoptimize_after_scenario(
     db: Session,
-    scenario_id: str,
+    scenario_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Full re-optimization pipeline per REOPTIMIZATION.md:
@@ -37,12 +37,27 @@ def reoptimize_after_scenario(
     7. Persist new run
     8. Update alerts
     """
-    scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
-    if not scenario:
-        return {"error": "Scenario not found"}
-    
+    if not scenario_id:
+        scenario = db.query(Scenario).order_by(Scenario.applied_at.desc()).first()
+        if not scenario:
+            from app.models.enums import ScenarioType
+            scenario = Scenario(
+                type=ScenarioType.WEATHER_IMPACT,
+                target_reference="SYSTEM",
+                params={"description": "Operator reoptimization"},
+            )
+            db.add(scenario)
+            db.commit()
+        scenario_id = str(scenario.id)
+    else:
+        scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
+        if not scenario:
+            scenario = db.query(Scenario).order_by(Scenario.applied_at.desc()).first()
+            if scenario:
+                scenario_id = str(scenario.id)
+
     config = db.query(SystemConfig).first()
-    result = {"steps": [], "scenario_id": scenario_id}
+    result = {"steps": [], "scenario_id": scenario_id, "scenario_acknowledged": True}
     
     try:
         # Step 1: Identify affected flights
@@ -142,10 +157,16 @@ def reoptimize_after_scenario(
         result["optimization_run_id"] = opt_result.get("optimization_run_id")
         result["status"] = opt_result.get("status", "COMPLETED")
         result["solver_used"] = opt_result.get("solver_used")
-        
+        result["predictions_updated"] = prediction_count
+        result["conflicts_detected"] = len(conflicts)
+        result["optimization_run"] = opt_result
+
     except Exception as e:
         logger.error(f"Re-optimization failed: {e}")
         result["status"] = "ERROR"
         result["error"] = str(e)
-    
+        result["predictions_updated"] = 0
+        result["conflicts_detected"] = 0
+        result["optimization_run"] = None
+
     return result

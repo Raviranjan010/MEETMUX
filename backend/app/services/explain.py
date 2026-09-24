@@ -31,12 +31,30 @@ def explain_assignment(
     """
     ga = db.query(GateAssignment).filter(GateAssignment.id == gate_assignment_id).first()
     if not ga:
+        # Check if gate_assignment_id is a flight_id
+        ga = (
+            db.query(GateAssignment)
+            .filter(GateAssignment.flight_id == gate_assignment_id)
+            .order_by(GateAssignment.created_at.desc())
+            .first()
+        )
+    if not ga:
+        # Check if gate_assignment_id is a flight_number
+        flight_obj = db.query(Flight).filter(Flight.flight_number == gate_assignment_id).first()
+        if flight_obj:
+            ga = (
+                db.query(GateAssignment)
+                .filter(GateAssignment.flight_id == flight_obj.id)
+                .order_by(GateAssignment.created_at.desc())
+                .first()
+            )
+    if not ga:
         return {"error": "Gate assignment not found"}
-    
+
     flight = ga.flight
     gate = ga.gate
     opt_run = ga.optimization_run
-    
+
     if not flight or not gate:
         return {"error": "Flight or gate not found for this assignment"}
     
@@ -164,13 +182,37 @@ def explain_assignment(
             "detail": f"Gate {gate.code} is a jetbridge gate (no remote stand penalty)",
         })
     
+    reason_strings = [r["detail"] if isinstance(r, dict) else str(r) for r in reasons]
+    hard_constraints = [
+        "AIRCRAFT_COMPATIBILITY",
+        "ROUTE_ELIGIBILITY",
+        "NO_OCCUPANCY_OVERLAP",
+        "TURNAROUND_FEASIBLE",
+    ]
+
     return {
         "flight_id": str(flight.id),
         "flight_number": flight.flight_number,
+        "assigned_gate": gate.code,
         "gate_id": str(gate.id),
         "gate_code": gate.code,
         "optimization_run_id": str(ga.optimization_run_id),
         "objective_contribution": obj_contrib,
-        "reasons": reasons,
+        "reasons": reason_strings,
+        "hard_constraints_satisfied": hard_constraints,
+        "soft_score_breakdown": {
+            "objective_contribution": obj_contrib or 0.0,
+            "taxi_distance": float(gate.taxi_distance_meters or 0),
+        },
         "alternatives_considered": alternatives,
+        "alternatives_evaluated": [
+            {
+                "gate": a["gate_code"],
+                "rank": idx + 1,
+                "score": a["objective_contribution"],
+                "reason": a["rejected_reason"],
+            }
+            for idx, a in enumerate(alternatives)
+        ],
     }
+

@@ -75,11 +75,26 @@ def run_scenario(
     db.commit()
     
     logger.info(f"Scenario {sc_type.value} applied to {target_reference}")
-    
+
+    # Count active conflicts for frontend KPI
+    from app.services.conflict import detect_conflicts_from_db
+    conflicts = detect_conflicts_from_db(db, assignment_source="BASELINE")
+
+    affected_count = state_changes.get("affected_flights", len(state_changes.get("affected_flight_ids", [])))
+    if affected_count == 0 and "flight_id" in state_changes:
+        affected_count = 1
+
     return {
         "scenario_id": str(scenario.id),
+        "id": str(scenario.id),
         "type": sc_type.value,
+        "scenario_name": sc_type.value.replace("_", " ").title(),
+        "description": f"Simulation of {sc_type.value.replace('_', ' ').lower()} affecting {target_reference}",
         "target_reference": target_reference,
+        "affected_flights_count": affected_count,
+        "conflicts_detected": len(conflicts),
+        "cascade_events_count": len(state_changes.get("created_flight_ids", [])) or (1 if affected_count > 0 else 0),
+        "details": state_changes,
         "state_changes": state_changes,
     }
 
@@ -243,3 +258,55 @@ def _apply_gate_conflict(db: Session, gate_code: str, params: Dict) -> Dict:
         "effect": "Gate flagged for conflict detection during next optimization run",
         "is_synthetic": True,
     }
+
+
+def reset_scenarios(db: Session) -> Dict[str, Any]:
+    """
+    Resets airport state back to nominal baseline:
+    - Restores closed runways to ACTIVE
+    - Restores blocked gates to AVAILABLE
+    - Removes surge flights
+    - Restores baseline weather
+    """
+    # 1. Restore runways
+    runways = db.query(Runway).all()
+    for r in runways:
+        r.status = RunwayStatus.ACTIVE
+
+    # 2. Restore gates
+    gates = db.query(Gate).all()
+    for g in gates:
+        g.status = GateStatus.AVAILABLE
+
+    # 3. Restore clear weather
+    weather = db.query(WeatherRecord).order_by(WeatherRecord.recorded_at.desc()).first()
+    if weather:
+        weather.condition = WeatherCondition.CLEAR
+        weather.wind_speed_kt = 8.5
+        weather.visibility_m = 10000.0
+
+    # 4. Remove surge flights
+    surge_flights = db.query(Flight).filter(Flight.flight_number.like("SG9%")).all()
+    surge_count = len(surge_flights)
+    for sf in surge_flights:
+        db.delete(sf)
+
+    # 5. Audit record
+    audit = AuditRecord(
+        action=AuditAction.SCENARIO_RUN,
+        actor="operator",
+        details={"action": "RESET_AIRPORT_STATE", "surge_flights_removed": surge_count},
+    )
+    db.add(audit)
+    db.commit()
+
+    logger.info("Airport operational state reset to nominal baseline")
+
+    return {
+        "status": "reset",
+        "message": "Airport operational state restored to nominal baseline",
+        "runways_active": len(runways),
+        "gates_available": len(gates),
+        "surge_flights_removed": surge_count,
+    }
+
