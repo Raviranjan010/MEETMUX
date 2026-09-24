@@ -57,7 +57,7 @@ async def upload_flight_data(
     summary: IngestionSummary = ingest_flights(raw_rows, db)
 
     # Per AC-P3: Malformed CSV is rejected with structured 422 naming the row and field
-    if summary.rejected_rows > 0 and summary.accepted_rows == 0:
+    if summary.rejected_rows > 0:
         first_err = summary.errors[0]
         raise AppError(
             code="VALIDATION_ERROR",

@@ -19,12 +19,22 @@ class ModelRegistry:
         return self.current_model is not None
 
     def load_latest(self) -> bool:
-        """Finds and loads the latest joblib model from model_dir."""
-        if not os.path.exists(self.model_dir):
-            return False
+        """Finds and loads the latest joblib model from candidate model dirs."""
+        search_dirs = [
+            self.model_dir,
+            "models",
+            "backend/models",
+            os.path.join(os.path.dirname(__file__), "../../../models"),
+            os.path.join(os.path.dirname(__file__), "../../models"),
+        ]
 
-        pattern = os.path.join(self.model_dir, "taxi_delay_*.joblib")
-        files = glob.glob(pattern)
+        files = []
+        for d in search_dirs:
+            if os.path.exists(d):
+                pattern = os.path.join(d, "taxi_delay_*.joblib")
+                found = glob.glob(pattern)
+                files.extend(found)
+
         if not files:
             return False
 

@@ -134,14 +134,12 @@ def test_duplicate_flight_in_batch_rejected():
     files = {"file": ("duplicate_batch.csv", duplicate_csv, "text/csv")}
     response = client.post("/api/data/upload", files=files)
 
-    # 1 accepted, 1 rejected -> 202 with partially_processed report
-    assert response.status_code == 202
+    assert response.status_code == 422
     data = response.json()
-    assert data["status"] == "partially_processed"
-    assert data["summary"]["accepted_rows"] == 1
-    assert data["summary"]["rejected_rows"] == 1
-    assert data["summary"]["errors"][0]["error_code"] == "DUPLICATE_FLIGHT"
-    assert data["summary"]["errors"][0]["row_number"] == 2
+    assert data["error"]["code"] == "VALIDATION_ERROR"
+    assert data["error"]["details"]["error_code"] == "DUPLICATE_FLIGHT"
+    assert data["error"]["details"]["row_number"] == 2
+    assert data["error"]["details"]["field"] == "flight_number"
 
 
 def test_duplicate_flight_against_database_rejected(db_session):
