@@ -58,7 +58,7 @@ def ingest_flights(raw_rows: List[Dict[str, Any]], db: Session) -> IngestionSumm
         for e in validation_errors
     ]
 
-    if not accepted_rows:
+    if not accepted_rows or validation_errors:
         return IngestionSummary(
             total_rows=len(raw_rows),
             accepted_rows=0,
