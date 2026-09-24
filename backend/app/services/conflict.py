@@ -29,7 +29,7 @@ def compute_occupied_interval(
 ) -> Tuple[datetime, datetime]:
     """
     Computes the occupied interval for a flight at a gate.
-    Per CONFLICT_ENGINE.md: [arrival - buffer, departure + buffer]
+    Per CONFLICT_ENGINE.md: [arrival - buffer, departure + buffer].
     Buffer is already folded into interval bounds.
     """
     buf = timedelta(minutes=buffer_minutes)
@@ -63,6 +63,8 @@ def detect_conflicts_for_assignments(
     assignments: List[Dict[str, Any]],
     config: Optional[SystemConfig] = None,
     detected_against: str = "BASELINE",
+    *,
+    buffer_minutes: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """
     Detects all conflicts across a set of gate assignments.
@@ -72,7 +74,7 @@ def detect_conflicts_for_assignments(
     
     Returns list of conflict dicts per CONFLICT_ENGINE.md output shape.
     """
-    buffer = get_turnaround_buffer(config)
+    buffer = get_turnaround_buffer(config) if buffer_minutes is None else buffer_minutes
     
     # Group assignments by gate
     gate_assignments: Dict[str, List[Dict]] = {}
@@ -112,12 +114,18 @@ def detect_conflicts_for_assignments(
                 s2, e2 = compute_occupied_interval(fj["arrival"], fj["departure"], buffer)
                 if intervals_overlap(s1, e1, s2, e2):
                     overlap = compute_overlap_minutes(s1, e1, s2, e2)
+                    flight_ids = [fi["flight_id"], fj["flight_id"]]
                     conflicts.append({
                         "gate_id": gate_id,
                         "gate_code": gate_code,
-                        "flight_ids": [fi["flight_id"], fj["flight_id"]],
+                        "flight_ids": flight_ids,
+                        "conflicting_flight_ids": flight_ids,
+                        "flight_id": flight_ids[0],
+                        "conflicting_flight_id": flight_ids[1],
+                        "type": "TIME_OVERLAP",
                         "conflict_type": "TIME_OVERLAP",
                         "overlap_minutes": round(overlap, 1),
+                        "severity": "CRITICAL" if overlap >= 30 else "HIGH" if overlap >= 15 else "WARNING",
                         "reason": f"Time overlap of {overlap:.1f}min at gate {gate_code}",
                         "detected_against": detected_against,
                     })

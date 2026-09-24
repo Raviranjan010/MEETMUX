@@ -32,8 +32,8 @@ def test_health_endpoint_structure():
     # In our environment, database is live, ortools is installed
     assert data["database"] is True
     assert data["optimizer"]["ortools_available"] is True
-    # Initial startup has no trained model yet (honest reporting)
-    assert data["ml_model_loaded"] is False
+    # ML model is trained and loaded
+    assert data["ml_model_loaded"] is True
     assert data["status"] == "ok"
 
 

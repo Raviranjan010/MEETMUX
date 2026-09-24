@@ -35,22 +35,37 @@ def validate_solution(
     violations = []
     buffer = get_turnaround_buffer(config)
     
-    gate_map = {i: g for i, g in enumerate(gates)}
-    flight_map = {i: f for i, f in enumerate(flights)}
-    
     # Track assignments per gate for overlap checking
     gate_assignments: Dict[int, List[int]] = {}  # gate_index -> [flight_indices]
     assigned_flights = set()
     unassigned_flights = []
     
     for a in assignments:
-        fi = a["flight_index"]
-        gi = a["gate_index"]
+        fi = a.get("flight_index")
+        gi = a.get("gate_index")
+        if not isinstance(fi, int) or fi < 0 or fi >= len(flights):
+            violations.append({"constraint": "INDEX_OUT_OF_RANGE", "message": f"Invalid flight index {fi}"})
+            continue
         
         if gi is not None:
+            if fi in assigned_flights:
+                violations.append({
+                    "constraint": "EXACTLY_ONE_GATE",
+                    "flight_id": str(flights[fi].id),
+                    "flight_number": flights[fi].flight_number,
+                    "message": f"Flight {flights[fi].flight_number} has multiple assignment rows",
+                })
             assigned_flights.add(fi)
-            gate_assignments.setdefault(gi, []).append(fi)
+            if isinstance(gi, int):
+                gate_assignments.setdefault(gi, []).append(fi)
         else:
+            if fi in assigned_flights:
+                violations.append({
+                    "constraint": "EXACTLY_ONE_GATE",
+                    "flight_id": str(flights[fi].id),
+                    "flight_number": flights[fi].flight_number,
+                    "message": f"Flight {flights[fi].flight_number} has multiple assignment rows",
+                })
             unassigned_flights.append(fi)
             assigned_flights.add(fi)  # explicitly unassigned is acceptable
     
@@ -66,13 +81,15 @@ def validate_solution(
     
     # Check each assigned flight
     for a in assignments:
-        fi = a["flight_index"]
-        gi = a["gate_index"]
+        fi = a.get("flight_index")
+        gi = a.get("gate_index")
+        if not isinstance(fi, int) or fi < 0 or fi >= len(flights):
+            continue
         
         if gi is None:
             continue  # Unassigned is valid (penalized)
         
-        if fi >= len(flights) or gi >= len(gates):
+        if not isinstance(gi, int) or gi < 0 or gi >= len(gates):
             violations.append({
                 "constraint": "INDEX_OUT_OF_RANGE",
                 "message": f"Invalid flight index {fi} or gate index {gi}",
@@ -151,7 +168,7 @@ def validate_solution(
                 )
                 if intervals_overlap(si, ei, sj, ej):
                     violations.append({
-                        "constraint": "NO_OVERLAP",
+                        "constraint": "TURNAROUND_OVERLAP",
                         "flight_ids": [str(flights[fi].id), str(flights[fj].id)],
                         "flight_numbers": [flights[fi].flight_number, flights[fj].flight_number],
                         "gate_id": str(gate.id),

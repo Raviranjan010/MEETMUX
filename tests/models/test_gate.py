@@ -27,7 +27,6 @@ def test_gate_model_attributes(db):
             GateStatus.OCCUPIED,
             GateStatus.RESERVED,
             GateStatus.BLOCKED,
-            GateStatus.CONFLICT,
         ]
         assert g.eligible_route_types in [
             GateEligibleRouteType.DOMESTIC,

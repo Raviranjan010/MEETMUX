@@ -13,7 +13,7 @@ def test_compute_occupied_interval():
     buffer = 15
 
     start, end = compute_occupied_interval(arr, dep, buffer)
-    assert start == arr
+    assert start == arr - timedelta(minutes=15)
     assert end == dep + timedelta(minutes=15)
 
 
@@ -63,7 +63,7 @@ def test_detect_conflicts_structure():
     assert len(conflicts) == 1
 
     c = conflicts[0]
-    assert c["type"] == "TIME_OVERLAP"
+    assert c["conflict_type"] == "TIME_OVERLAP"
     assert c["flight_id"] == "f1"
     assert c["conflicting_flight_id"] == "f2"
     assert c["gate_code"] == "A1"

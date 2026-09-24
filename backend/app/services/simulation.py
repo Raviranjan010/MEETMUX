@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional, List
 import random
 
 from sqlalchemy.orm import Session
+from fastapi import HTTPException
 
 from app.models import (
     Flight, Gate, Runway, WeatherRecord, Scenario, AuditRecord,
@@ -49,12 +50,16 @@ def run_scenario(
         state_changes = _apply_gate_conflict(db, target_reference, params)
     elif sc_type == ScenarioType.CASCADE_DELAY:
         state_changes = _apply_flight_delay(db, target_reference, params)
+
+    if "error" in state_changes:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=state_changes["error"])
     
     # Create scenario record
     scenario = Scenario(
         type=sc_type,
         target_reference=target_reference,
-        params=params,
+        params={**params, "_state_changes": state_changes},
     )
     db.add(scenario)
     db.flush()
@@ -103,11 +108,12 @@ def _apply_heavy_rain(db: Session, airport_code: str, params: Dict) -> Dict:
     """Insert heavy rain weather record, affecting predictions."""
     airport = db.query(Airport).filter(Airport.code == airport_code).first()
     if not airport:
-        airport = db.query(Airport).first()
+        return {"error": f"Airport {airport_code} not found"}
     
+    recorded_at = datetime.now(timezone.utc)
     weather = WeatherRecord(
         airport_id=airport.id,
-        recorded_at=datetime.now(timezone.utc),
+        recorded_at=recorded_at,
         condition=WeatherCondition.HEAVY_RAIN,
         wind_speed_kt=params.get("wind_speed_kt", 25.0),
         visibility_m=params.get("visibility_m", 2000.0),
@@ -116,6 +122,7 @@ def _apply_heavy_rain(db: Session, airport_code: str, params: Dict) -> Dict:
     
     return {
         "weather_condition": "HEAVY_RAIN",
+        "recorded_at": recorded_at.isoformat(),
         "airport_code": airport.code,
         "visibility_m": params.get("visibility_m", 2000.0),
         "wind_speed_kt": params.get("wind_speed_kt", 25.0),
@@ -130,6 +137,7 @@ def _apply_runway_closure(db: Session, runway_code: str, params: Dict) -> Dict:
         return {"error": f"Runway {runway_code} not found"}
     
     runway.status = RunwayStatus.CLOSED
+    original_status = RunwayStatus.ACTIVE.value
     
     affected_flights = db.query(Flight).filter(Flight.runway_id == runway.id).all()
     affected_ids = [str(f.id) for f in affected_flights]
@@ -148,6 +156,7 @@ def _apply_runway_closure(db: Session, runway_code: str, params: Dict) -> Dict:
     
     return {
         "runway_code": runway_code,
+        "previous_status": original_status,
         "new_status": "CLOSED",
         "affected_flights": len(affected_ids),
         "affected_flight_ids": affected_ids[:20],
@@ -173,9 +182,11 @@ def _apply_gate_closure(db: Session, gate_code: str, params: Dict) -> Dict:
 def _apply_traffic_surge(db: Session, airport_code: str, params: Dict) -> Dict:
     """Insert additional synthetic flights."""
     additional = params.get("additional_flights", 10)
+    if not isinstance(additional, int) or additional < 1 or additional > 100:
+        return {"error": "additional_flights must be an integer between 1 and 100"}
     airport = db.query(Airport).filter(Airport.code == airport_code).first()
     if not airport:
-        airport = db.query(Airport).first()
+        return {"error": f"Airport {airport_code} not found"}
     
     runways = db.query(Runway).filter(Runway.status == RunwayStatus.ACTIVE).all()
     aircraft_list = db.query(Aircraft).all()
@@ -223,9 +234,6 @@ def _apply_flight_delay(db: Session, flight_number: str, params: Dict) -> Dict:
     
     flight = db.query(Flight).filter(Flight.flight_number == flight_number).first()
     if not flight:
-        # Try finding by partial match
-        flight = db.query(Flight).filter(Flight.flight_number.contains(flight_number)).first()
-    if not flight:
         return {"error": f"Flight {flight_number} not found"}
     
     delta = timedelta(minutes=delay_minutes)
@@ -252,10 +260,39 @@ def _apply_gate_conflict(db: Session, gate_code: str, params: Dict) -> Dict:
     if not gate:
         return {"error": f"Gate {gate_code} not found"}
     
-    # This is for demo - the conflict will be detected by the conflict engine
+    candidates = (
+        db.query(Flight)
+        .filter(Flight.scheduled_arrival.isnot(None), Flight.scheduled_departure.isnot(None))
+        .order_by(Flight.scheduled_arrival.asc())
+        .limit(2)
+        .all()
+    )
+    if len(candidates) < 2:
+        return {"error": "At least two flights with scheduled intervals are required"}
+
+    from app.models import GateAssignment, OptimizationRun
+    from app.models.enums import RunType, SolverUsed, OptimizationStatus, AssignmentStatus
+    run = OptimizationRun(
+        run_type=RunType.BASELINE,
+        solver_used=SolverUsed.NONE,
+        solver_status="SCENARIO_FORCED_CONFLICT",
+        status=OptimizationStatus.FEASIBLE,
+        config_snapshot={"scenario_forced": True},
+    )
+    db.add(run)
+    db.flush()
+    for flight in candidates:
+        db.add(GateAssignment(
+            optimization_run_id=run.id,
+            flight_id=flight.id,
+            gate_id=gate.id,
+            assignment_status=AssignmentStatus.BASELINE,
+        ))
     return {
         "gate_code": gate_code,
-        "effect": "Gate flagged for conflict detection during next optimization run",
+        "optimization_run_id": str(run.id),
+        "flight_ids": [str(f.id) for f in candidates],
+        "effect": "Two scheduled flights were assigned to this gate for conflict detection",
         "is_synthetic": True,
     }
 
@@ -270,8 +307,12 @@ def reset_scenarios(db: Session) -> Dict[str, Any]:
     """
     # 1. Restore runways
     runways = db.query(Runway).all()
-    for r in runways:
-        r.status = RunwayStatus.ACTIVE
+    runway_scenarios = db.query(Scenario).filter(Scenario.type == ScenarioType.RUNWAY_CLOSURE).all()
+    for scenario in runway_scenarios:
+        previous_status = scenario.params.get("_state_changes", {}).get("previous_status")
+        runway = db.query(Runway).filter(Runway.code == scenario.target_reference).first()
+        if runway:
+            runway.status = RunwayStatus(previous_status or RunwayStatus.ACTIVE.value)
 
     # 2. Restore gates
     gates = db.query(Gate).all()
@@ -279,11 +320,15 @@ def reset_scenarios(db: Session) -> Dict[str, Any]:
         g.status = GateStatus.AVAILABLE
 
     # 3. Restore clear weather
-    weather = db.query(WeatherRecord).order_by(WeatherRecord.recorded_at.desc()).first()
-    if weather:
-        weather.condition = WeatherCondition.CLEAR
-        weather.wind_speed_kt = 8.5
-        weather.visibility_m = 10000.0
+    scenario_rows = db.query(Scenario).filter(Scenario.type == ScenarioType.HEAVY_RAIN).all()
+    for scenario in scenario_rows:
+        recorded_at = scenario.params.get("_state_changes", {}).get("recorded_at")
+        if recorded_at:
+            weather = db.query(WeatherRecord).filter(
+                WeatherRecord.recorded_at == datetime.fromisoformat(recorded_at)
+            ).first()
+            if weather:
+                db.delete(weather)
 
     # 4. Remove surge flights
     surge_flights = db.query(Flight).filter(Flight.flight_number.like("SG9%")).all()
@@ -309,4 +354,3 @@ def reset_scenarios(db: Session) -> Dict[str, Any]:
         "gates_available": len(gates),
         "surge_flights_removed": surge_count,
     }
-

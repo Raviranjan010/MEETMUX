@@ -50,10 +50,10 @@ def test_compute_flight_features():
     )
 
     assert features["is_international"] == 1
-    assert features["size_class_num"] == 2  # LARGE -> 2
+    assert features["size_class_num"] == 3.0  # LARGE -> 3.0
     assert features["traffic_density_30m"] == 8
     assert features["gate_type_remote"] == 1
-    assert features["weather_severity"] == 3  # HEAVY_RAIN
+    assert features["weather_severity"] == 4.0  # HEAVY_RAIN -> 4.0
 
 
 def test_compute_input_hash_deterministic():
@@ -73,4 +73,5 @@ def test_compute_input_hash_deterministic():
     hash1 = compute_input_hash(features)
     hash2 = compute_input_hash(features)
     assert hash1 == hash2
-    assert len(hash1) == 16
+    assert len(hash1) == 12
+

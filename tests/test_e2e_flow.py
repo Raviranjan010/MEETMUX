@@ -136,7 +136,7 @@ def test_section_40_full_e2e_acceptance_flow(db):
     # Step 20: Verify airport map gates data is live
     gates_resp = client.get("/api/gates")
     assert gates_resp.status_code == 200
-    assert len(gates_resp.json()) == 30
+    assert len(gates_resp.json()["items"]) == 30
 
     # Step 21: Verify gate timeline conflicts
     timeline_conflicts = client.post("/api/conflicts/detect")
@@ -156,5 +156,6 @@ def test_section_40_full_e2e_acceptance_flow(db):
 
     # Clean up: Reset scenario state to nominal baseline
     client.post("/api/scenarios/reset")
+    db.refresh(rwy2)
     rwy2_restored = db.query(Runway).filter(Runway.code == "RWY-2").first()
     assert rwy2_restored.status == RunwayStatus.ACTIVE
