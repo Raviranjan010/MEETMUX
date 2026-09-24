@@ -35,6 +35,13 @@ WEATHER_SEVERITY_MAP = {
 }
 
 
+def encode_cyclical(val: float, period: float):
+    """Encodes a scalar value into sin and cos components with a given period."""
+    sin_val = math.sin(2 * math.pi * val / period)
+    cos_val = math.cos(2 * math.pi * val / period)
+    return sin_val, cos_val
+
+
 def compute_flight_features(
     scheduled_arrival: datetime,
     route_type: str,
@@ -52,10 +59,8 @@ def compute_flight_features(
     hour = scheduled_arrival.hour + scheduled_arrival.minute / 60.0
     dow = scheduled_arrival.weekday()
 
-    hour_sin = math.sin(2 * math.pi * hour / 24.0)
-    hour_cos = math.cos(2 * math.pi * hour / 24.0)
-    dow_sin = math.sin(2 * math.pi * dow / 7.0)
-    dow_cos = math.cos(2 * math.pi * dow / 7.0)
+    hour_sin, hour_cos = encode_cyclical(hour, 24.0)
+    dow_sin, dow_cos = encode_cyclical(dow, 7.0)
 
     is_international = 1.0 if str(route_type).upper() == "INTERNATIONAL" else 0.0
     size_class_num = float(SIZE_CLASS_MAP.get(str(aircraft_size_class).upper(), 2))
