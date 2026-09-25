@@ -6,6 +6,7 @@ export default function Settings() {
   const [health, setHealth] = useState({ status: 'healthy', database: 'connected', model: 'loaded' });
   const [saved, setSaved] = useState(false);
 
+  const [apiUrl, setApiUrl] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('runwayoptx_api_url') || '' : ''));
   const [config, setConfig] = useState({
     defaultSolver: 'ortools',
     timeLimit: 60,
@@ -18,7 +19,7 @@ export default function Settings() {
   useEffect(() => {
     getHealth()
       .then((res) => setHealth(res.data))
-      .catch(() => setHealth({ status: 'degraded', database: 'error', model: 'error' }));
+      .catch(() => setHealth({ status: 'degraded', database: 'disconnected', model: 'offline' }));
   }, []);
 
   const handleChange = (e) => {
@@ -28,8 +29,16 @@ export default function Settings() {
 
   const handleSave = (e) => {
     e.preventDefault();
+    if (apiUrl.trim()) {
+      localStorage.setItem('runwayoptx_api_url', apiUrl.trim());
+    } else {
+      localStorage.removeItem('runwayoptx_api_url');
+    }
     setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    setTimeout(() => {
+      setSaved(false);
+      window.location.reload();
+    }, 1200);
   };
 
   return (
@@ -136,9 +145,25 @@ export default function Settings() {
               </div>
             </div>
 
+            <div>
+              <label className="form-label">
+                Backend API Server URL (for Production / Custom Deployments)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. https://your-backend-api.onrender.com (defaults to /api)"
+                className="form-input mono"
+                value={apiUrl}
+                onChange={(e) => setApiUrl(e.target.value)}
+              />
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                Leave empty to use default relative <code>/api</code> route or your <code>VITE_API_URL</code> environment variable.
+              </span>
+            </div>
+
             <button type="submit" className="btn btn-primary" style={{ marginTop: '12px' }}>
               <Save size={16} />
-              <span>Save Operations Configuration</span>
+              <span>Save & Apply Settings</span>
             </button>
           </form>
         </div>

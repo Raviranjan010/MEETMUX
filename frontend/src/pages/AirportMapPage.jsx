@@ -4,20 +4,33 @@ import GateMap from '../components/GateMap';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { MapPin, Info } from 'lucide-react';
 
+import { DEFAULT_DASHBOARD_DATA } from '../utils/mockData';
+
 export default function AirportMapPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     getDashboardSummary()
-      .then((res) => setData(res.data))
-      .catch((err) => console.error('Failed to load map data:', err))
+      .then((res) => {
+        if (res?.data && res.data.gate_occupancy) {
+          setData(res.data);
+        } else {
+          setData(DEFAULT_DASHBOARD_DATA);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load map data from live backend, using demo layout:', err);
+        setData(DEFAULT_DASHBOARD_DATA);
+      })
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading || !data) {
+  if (loading && !data) {
     return <LoadingSpinner text="Rendering airport concourse apron and live telemetry..." />;
   }
+
+  const activeData = data || DEFAULT_DASHBOARD_DATA;
 
   return (
     <div className="page-container">
@@ -34,7 +47,7 @@ export default function AirportMapPage() {
 
       {/* Main Full-Size Map Component */}
       <div style={{ marginBottom: '24px' }}>
-        <GateMap occupancy={data.gate_occupancy} />
+        <GateMap occupancy={activeData.gate_occupancy} />
       </div>
 
       {/* Airport Concourse Specification Panel */}
